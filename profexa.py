@@ -1,33 +1,33 @@
 import streamlit as st
 import google.generativeai as genai
 import json
-import random
-from typing import List, Dict, Any
-import time
 import sqlite3
 import hashlib
 import os
+import time
 from datetime import datetime
+from typing import List, Dict, Any
 
-# Configure Gemini API - use environment variable or Streamlit secrets
+# Configure Gemini API
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY") or st.secrets.get("GEMINI_API_KEY")
 
 if not GEMINI_API_KEY:
     st.error("❌ GEMINI_API_KEY not found. Please set it as an environment variable or in .streamlit/secrets.toml")
     st.stop()
 
-genai.configure(api_key=GEMINI_API_KEY)
-
-# Initialize Gemini model
-model = genai.GenerativeModel('gemini-2.0-flash-exp')
+try:
+    genai.configure(api_key=GEMINI_API_KEY)
+    model = genai.GenerativeModel('gemini-2.0-flash-exp')
+except Exception as e:
+    st.error(f"❌ Error configuring Gemini API: {e}")
+    st.stop()
 
 # Database setup
 def init_database():
-    """Initialize the SQLite database with tables for users and learning history"""
+    """Initialize the SQLite database"""
     conn = sqlite3.connect('ai_teacher.db')
     cursor = conn.cursor()
     
-    # Users table
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -37,7 +37,6 @@ def init_database():
         )
     ''')
     
-    # Learning history table
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS learning_history (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -60,15 +59,12 @@ def init_database():
     conn.close()
 
 def hash_password(password: str) -> str:
-    """Hash a password using SHA-256"""
     return hashlib.sha256(password.encode()).hexdigest()
 
 def verify_password(password: str, hashed: str) -> bool:
-    """Verify a password against its hash"""
     return hash_password(password) == hashed
 
 def create_user(username: str, password: str) -> bool:
-    """Create a new user account"""
     try:
         conn = sqlite3.connect('ai_teacher.db')
         cursor = conn.cursor()
@@ -78,10 +74,9 @@ def create_user(username: str, password: str) -> bool:
         conn.close()
         return True
     except sqlite3.IntegrityError:
-        return False  # Username already exists
+        return False
 
 def authenticate_user(username: str, password: str) -> int:
-    """Authenticate a user and return their user_id if successful, -1 if failed"""
     conn = sqlite3.connect('ai_teacher.db')
     cursor = conn.cursor()
     cursor.execute('SELECT id, password_hash FROM users WHERE username = ?', (username,))
@@ -94,11 +89,12 @@ def authenticate_user(username: str, password: str) -> int:
 
 def save_learning_session(user_id: int, topic: str, subtopic: str, learning_level: str, mode: str, 
                          progress: int, chat_history: List[Dict], quiz_score: int = 0, quiz_total: int = 0):
-    """Save or update a learning session"""
+    if not user_id:  # Don't save for guest users
+        return
+        
     conn = sqlite3.connect('ai_teacher.db')
     cursor = conn.cursor()
     
-    # Check if session already exists
     cursor.execute('''
         SELECT id FROM learning_history 
         WHERE user_id = ? AND topic = ? AND subtopic = ? AND learning_level = ?
@@ -107,14 +103,12 @@ def save_learning_session(user_id: int, topic: str, subtopic: str, learning_leve
     existing = cursor.fetchone()
     
     if existing:
-        # Update existing session
         cursor.execute('''
             UPDATE learning_history 
             SET progress = ?, chat_history = ?, quiz_score = ?, quiz_total = ?, last_accessed = CURRENT_TIMESTAMP
             WHERE id = ?
         ''', (progress, json.dumps(chat_history), quiz_score, quiz_total, existing[0]))
     else:
-        # Create new session
         cursor.execute('''
             INSERT INTO learning_history 
             (user_id, topic, subtopic, learning_level, mode, progress, chat_history, quiz_score, quiz_total)
@@ -125,7 +119,6 @@ def save_learning_session(user_id: int, topic: str, subtopic: str, learning_leve
     conn.close()
 
 def get_user_learning_history(user_id: int) -> List[Dict]:
-    """Get all learning sessions for a user"""
     conn = sqlite3.connect('ai_teacher.db')
     cursor = conn.cursor()
     
@@ -157,52 +150,29 @@ def get_user_learning_history(user_id: int) -> List[Dict]:
     
     return history
 
-def load_learning_session(user_id: int, topic: str, subtopic: str, learning_level: str) -> Dict:
-    """Load a specific learning session"""
-    conn = sqlite3.connect('ai_teacher.db')
-    cursor = conn.cursor()
-    
-    cursor.execute('''
-        SELECT progress, chat_history, quiz_score, quiz_total, mode
-        FROM learning_history 
-        WHERE user_id = ? AND topic = ? AND subtopic = ? AND learning_level = ?
-    ''', (user_id, topic, subtopic, learning_level))
-    
-    result = cursor.fetchone()
-    conn.close()
-    
-    if result:
-        return {
-            'progress': result[0],
-            'chat_history': json.loads(result[1]) if result[1] else [],
-            'quiz_score': result[2],
-            'quiz_total': result[3],
-            'mode': result[4]
-        }
-    return None
-
 # Initialize database
 init_database()
 
 # Page configuration
 st.set_page_config(
-    page_title="AI Expert Teacher",
+    page_title="Profexa AI",
     page_icon="🎓",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS for better styling
+# Custom CSS
 st.markdown("""
 <style>
     .main-header {
-        font-size: 20rem !important;
+        font-size: 4rem !important;
         font-weight: bold !important;
         text-align: center !important;
         color: #1f77b4 !important;
         margin-bottom: 2rem !important;
         text-shadow: 2px 2px 4px rgba(0,0,0,0.1) !important;
     }
+    
     .sub-header {
         font-size: 2.5rem !important;
         font-weight: bold !important;
@@ -210,32 +180,24 @@ st.markdown("""
         margin-bottom: 1.5rem !important;
         text-align: center !important;
     }
-    .topic-card {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        padding: 1rem;
-        border-radius: 10px;
-        color: white;
-        margin: 0.5rem 0;
-        cursor: pointer;
-        transition: transform 0.2s;
-    }
-    .topic-card:hover {
-        transform: translateY(-2px);
-    }
+    
     .chat-message {
         padding: 1rem !important;
         margin: 0.5rem 0 !important;
         border-radius: 10px !important;
         font-size: 1.1rem !important;
     }
+    
     .user-message {
         background-color: #e3f2fd !important;
         border-left: 4px solid #2196f3 !important;
     }
+    
     .ai-message {
         background-color: #f3e5f5 !important;
         border-left: 4px solid #9c27b0 !important;
     }
+    
     .quiz-question {
         background-color: #fff3e0 !important;
         padding: 1.5rem !important;
@@ -244,34 +206,14 @@ st.markdown("""
         border-left: 4px solid #ff9800 !important;
         font-size: 1.2rem !important;
     }
-    .stButton > button {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        color: white;
-        border: none;
-        border-radius: 25px;
-        padding: 0.8rem 2rem;
-        font-weight: bold;
-        font-size: 1.2rem;
-        transition: all 0.3s;
-        white-space: nowrap;
-        height: 48px !important;
-        min-height: 48px !important;
-        display: flex !important;
-        align-items: center !important;
-        justify-content: center !important;
-        margin-top: 0 !important;
-        margin-bottom: 0 !important;
-    }
-    .stButton > button:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 4px 8px rgba(0,0,0,0.2);
-    }
+    
     .progress-container {
         margin-top: 2rem !important;
         padding: 1rem !important;
         background-color: #f5f5f5 !important;
         border-radius: 10px !important;
     }
+    
     .progress-bar {
         height: 20px !important;
         background: linear-gradient(90deg, #4caf50, #8bc34a) !important;
@@ -279,106 +221,29 @@ st.markdown("""
         transition: width 0.3s ease !important;
     }
     
-    /* Make all text bigger */
-    .stMarkdown {
-        font-size: 1.3rem !important;
-        line-height: 1.6 !important;
+    .stButton > button {
+        font-size: 1.1rem !important;
+        padding: 0.75rem 1.5rem !important;
+        height: auto !important;
+        min-height: 50px !important;
+        width: 100% !important;
     }
     
-    /* Make input text bigger and align with buttons */
     .stTextInput > div > div > input {
         font-size: 1.1rem !important;
         padding: 0.75rem !important;
-        height: 48px !important;
-        min-height: 48px !important;
-        margin-top: 0 !important;
-        margin-bottom: 0 !important;
     }
     
-    /* Ensure input container aligns properly */
-    .stTextInput > div {
-        margin-top: 0 !important;
-        margin-bottom: 0 !important;
+    .stSelectbox > div > div > div {
+        font-size: 1.1rem !important;
+        padding: 0.75rem !important;
     }
     
-    /* Target column containers for proper alignment */
-    .stHorizontalBlock > div {
-        display: flex !important;
-        align-items: flex-end !important;
+    /* Make login/signup buttons wider */
+    .stForm > div > div > div > div > button {
+        width: 100% !important;
+        min-width: 200px !important;
     }
-    
-    /* Ensure all columns have the same baseline alignment */
-    .stHorizontalBlock > div > div {
-        display: flex !important;
-        align-items: flex-end !important;
-        margin-bottom: 0 !important;
-    }
-    
-    /* More aggressive targeting for button alignment */
-    .stHorizontalBlock > div > div > div {
-        display: flex !important;
-        align-items: flex-end !important;
-        margin-bottom: 0 !important;
-    }
-    
-    /* Target the specific button containers */
-    .stButton {
-        display: flex !important;
-        align-items: flex-end !important;
-        margin-bottom: 0 !important;
-        margin-top: 20px !important;
-    }
-    
-    /* Ensure text input and buttons are on the same line */
-    .stTextInput, .stButton {
-        margin-top: 0 !important;
-        margin-bottom: 0 !important;
-        padding-top: 0 !important;
-        padding-bottom: 0 !important;
-    }
-    
-    /* Lower the buttons specifically */
-    .stButton > button {
-        margin-top: 20px !important;
-    }
-    
-    /* Make radio buttons bigger */
-    .stRadio > div > div > label {
-        font-size: 1.3rem !important;
-        padding: 0.5rem 0 !important;
-    }
-    
-    /* Make expander text bigger */
-    .streamlit-expanderHeader {
-        font-size: 1.3rem !important;
-    }
-    
-    /* Make success/error/info messages bigger */
-    .stAlert {
-        font-size: 1.3rem !important;
-    }
-    
-    /* Make sidebar text bigger */
-    .css-1d391kg {
-        font-size: 1.3rem !important;
-    }
-    
-    /* Make all p tags bigger */
-    p {
-        font-size: 1.3rem !important;
-        line-height: 1.6 !important;
-    }
-    
-    /* Make all div text bigger */
-    div {
-        font-size: 1.3rem !important;
-    }
-    
-    /* Make strong/bold text bigger */
-    strong, b {
-        font-size: 1.4rem !important;
-    }
-
 </style>
 """, unsafe_allow_html=True)
 
@@ -417,57 +282,27 @@ if 'lesson_start_time' not in st.session_state:
     st.session_state.lesson_start_time = None
 
 def generate_popular_subtopics(topic: str, learning_level: str) -> List[str]:
-    """Generate 5 most popular subtopics for a given topic and learning level using Gemini AI"""
+    """Generate popular subtopics for a given topic and learning level"""
     
-    # Define level-specific focus areas
     level_focus = {
-        "elementary": "basic concepts, foundational skills, hands-on activities, simple explanations, and fun learning",
-        "middle": "building on basics, practical applications, critical thinking, real-world connections, and skill development",
-        "high": "advanced concepts, detailed analysis, complex applications, theoretical understanding, and career preparation",
-        "adult": "professional applications, advanced techniques, industry relevance, practical skills, and specialized knowledge"
+        "elementary": "basic concepts, foundational skills, hands-on activities",
+        "middle": "building on basics, practical applications, critical thinking",
+        "high": "advanced concepts, detailed analysis, complex applications",
+        "adult": "professional applications, advanced techniques, industry relevance"
     }
     
     focus = level_focus.get(learning_level, level_focus["middle"])
     
-    # Add randomness to ensure different subtopics each time
-    import random
-    random_elements = [
-        "unique perspectives", "different approaches", "various aspects", 
-        "diverse angles", "multiple viewpoints", "alternative methods",
-        "fresh insights", "new dimensions", "creative approaches"
-    ]
-    
-    random_element = random.choice(random_elements)
-    
     prompt = f"""
-    You are an expert curriculum designer. For the topic "{topic}" at the {learning_level} level, generate exactly 5 BROAD, GENERAL subtopics that students at this level should learn about.
-    
+    For the topic "{topic}" at the {learning_level} level, generate exactly 5 BROAD subtopics.
     Focus on: {focus}
     
-    IMPORTANT: Generate {random_element} and BROAD categories, not specific techniques or detailed concepts. Think of major areas within the topic.
-    
-    These should be:
-    - BROAD categories within the main topic (e.g., "Basic Concepts", "Advanced Techniques", "Real-World Applications")
-    - Age and skill level appropriate
-    - Something that can be taught in 10-15 minutes
-    - General enough to cover multiple specific concepts
-    - Different from typical suggestions - be creative and varied
-    
-    Examples of BROAD subtopics:
-    - For "Math": "Basic Operations", "Problem Solving", "Real-World Applications", "Advanced Concepts", "Practical Skills"
-    - For "Science": "Basic Principles", "Experiments and Methods", "Real-World Applications", "Advanced Theories", "Practical Skills"
-    - For "History": "Key Events", "Important People", "Major Changes", "Cultural Impact", "Modern Connections"
-    - For "Art": "Basic Techniques", "Creative Expression", "Art History", "Modern Applications", "Practical Skills"
-    
-    Return only a JSON array of exactly 5 strings, no additional text.
-    
-    Example format:
-    ["Broad Category 1", "Broad Category 2", "Broad Category 3", "Broad Category 4", "Broad Category 5"]
+    Return only a JSON array of exactly 5 strings.
+    Example: ["Basic Concepts", "Practical Applications", "Advanced Techniques", "Real-World Examples", "Problem Solving"]
     """
     
     try:
         response = model.generate_content(prompt)
-        # Extract JSON from response
         content = response.text.strip()
         if content.startswith('```json'):
             content = content[7:-3]
@@ -475,139 +310,84 @@ def generate_popular_subtopics(topic: str, learning_level: str) -> List[str]:
             content = content[3:-3]
         
         subtopics = json.loads(content)
-        return subtopics[:5]  # Ensure only 5 subtopics
+        return subtopics[:5]
     except Exception as e:
-        st.error(f"Error generating subtopics: {e}")
-        # Fallback subtopics based on level with randomness
-        fallback_subtopics = {
+        # Fallback subtopics
+        fallback = {
             "elementary": ["Basic Concepts", "Simple Examples", "Fun Activities", "Easy Practice", "Real World Uses"],
             "middle": ["Building Skills", "Practical Applications", "Problem Solving", "Critical Thinking", "Hands-on Projects"],
             "high": ["Advanced Concepts", "Detailed Analysis", "Complex Applications", "Theoretical Understanding", "Career Preparation"],
             "adult": ["Professional Skills", "Advanced Techniques", "Industry Applications", "Specialized Knowledge", "Practical Implementation"]
         }
-        base_subtopics = fallback_subtopics.get(learning_level, fallback_subtopics["middle"])
-        # Shuffle the subtopics to add variety
-        random.shuffle(base_subtopics)
-        return base_subtopics
+        return fallback.get(learning_level, fallback["middle"])
 
 def validate_custom_subtopic(custom_subtopic: str, main_topic: str) -> bool:
     """Check if the custom subtopic is related to the main topic"""
     prompt = f"""
-    Determine if the subtopic "{custom_subtopic}" is directly related to the main topic "{main_topic}".
-    
-    A subtopic is related if:
-    - It's a specific aspect, technique, or concept within the main topic
-    - It's commonly taught as part of learning the main topic
-    - It's a specialized area within the main topic's domain
-    
-    Examples of related subtopics:
-    - Main topic: "Photography", Subtopic: "Aperture settings" → RELATED
-    - Main topic: "Cooking", Subtopic: "Knife skills" → RELATED
-    - Main topic: "Photography", Subtopic: "Baking bread" → NOT RELATED
-    - Main topic: "Cooking", Subtopic: "Car mechanics" → NOT RELATED
-    
-    Respond with only "RELATED" or "NOT RELATED".
+    Is "{custom_subtopic}" related to "{main_topic}"?
+    Respond with only "YES" or "NO".
     """
     
     try:
         response = model.generate_content(prompt)
         result = response.text.strip().upper()
-        return "RELATED" in result
-    except Exception as e:
-        # Default to related if there's an error
+        return "YES" in result
+    except:
         return True
 
 def generate_learning_content(subtopic: str, topic: str, learning_level: str) -> str:
-    """Generate engaging learning content for a subtopic with structured lesson plan"""
+    """Generate engaging learning content for a subtopic"""
     
-    # Define level-specific teaching styles
     level_styles = {
-        "elementary": {
-            "tone": "warm, encouraging, and very patient like a caring elementary teacher",
-            "language": "simple, clear, and uses lots of examples and analogies",
-            "approach": "very hands-on with concrete examples and step-by-step guidance"
-        },
-        "middle": {
-            "tone": "enthusiastic and supportive like a middle school teacher who believes in you",
-            "language": "clear but more sophisticated, uses relatable examples",
-            "approach": "encourages critical thinking while providing structure"
-        },
-        "high": {
-            "tone": "professional yet approachable like a knowledgeable high school teacher",
-            "language": "more sophisticated vocabulary, detailed explanations",
-            "approach": "encourages independent thinking and deeper analysis"
-        },
-        "adult": {
-            "tone": "professional and collaborative like a subject matter expert",
-            "language": "sophisticated vocabulary, assumes prior knowledge",
-            "approach": "focuses on practical applications and advanced concepts"
-        }
+        "elementary": "warm, encouraging, and very patient like a caring elementary teacher",
+        "middle": "enthusiastic and supportive like a middle school teacher",
+        "high": "professional yet approachable like a knowledgeable high school teacher",
+        "adult": "professional and collaborative like a subject matter expert"
     }
     
     style = level_styles.get(learning_level, level_styles["middle"])
     
     prompt = f"""
-    You are an expert teacher specializing in {topic}, teaching a {learning_level} student about "{subtopic}". 
+    You are an expert teacher teaching "{subtopic}" within the broader topic of "{topic}" to {learning_level} level students.
     
-    TEACHING STYLE: {style['tone']}
-    LANGUAGE: {style['language']}
-    APPROACH: {style['approach']}
+    Teaching style: {style}
     
-    Create an engaging initial lesson that clearly explains what "{subtopic}" is and starts teaching it. Assume the student has NO prior knowledge.
+    Create a concise, engaging introduction to this subtopic that:
+    1. Explains what this subtopic is about
+    2. Connects it to what students might already know
+    3. Sets up the learning journey
+    4. Ends with an engaging question to start the conversation
     
-    Your response should be:
-    - 3-4 sentences long (longer than before)
-    - Start with "🎓 Welcome to [subtopic]!"
-    - Clearly explain what the subtopic is and why it's important
-    - Provide a brief overview of what they'll learn
-    - End with an engaging question that starts the learning journey
-    - Use {style['tone']} and {style['language']}
-    - Make it exciting and inviting
-    
-    CRITICAL: Do NOT ask yes/no questions. Ask open-ended questions that encourage thinking and discussion.
-    
-    EXAMPLE FORMAT:
-    "🎓 Welcome to [subtopic]! [Clear explanation of what this subtopic is and why it matters]. [Brief overview of what they'll learn]. [Open-ended question to start the learning journey]!"
-    
-    Make sure the explanation is clear and the question moves the lesson forward!
+    Keep it under 150 words and make it conversational and warm.
     """
     
     try:
         response = model.generate_content(prompt)
-        return response.text
+        return response.text.strip()
     except Exception as e:
-        return f"🎓 Welcome to {subtopic}! This is an important area within {topic} that will help you understand the bigger picture. Let's explore what this involves and why it matters. What do you think this subtopic might cover?"
+        return f"Welcome to learning about {subtopic}! This is an important part of {topic} that we'll explore together. What would you like to know about {subtopic}?"
 
 def generate_quiz_questions(subtopic: str, topic: str) -> List[Dict[str, Any]]:
-    """Generate quiz questions for a subtopic with less obvious answers"""
+    """Generate quiz questions for a subtopic"""
+    
     prompt = f"""
-    Create a 7-question multiple choice quiz about "{subtopic}" within the broader topic of "{topic}" for middle school students.
+    Create 5 multiple-choice quiz questions about "{subtopic}" within the topic "{topic}".
     
-    Each question should:
-    - Have 4 options (A, B, C, D) with only one correct answer
-    - Be age-appropriate for middle school students
-    - Use clear, simple language
-    - Include real-world examples when possible
-    - Range from basic to moderate difficulty
-    - Be engaging and interesting
+    Each question should have:
+    - A clear question
+    - 4 answer options (A, B, C, D)
+    - One correct answer
+    - A brief explanation of why the answer is correct
     
-    CRITICAL: Make the incorrect answers believable and plausible. They should:
-    - Sound reasonable to someone who doesn't know the topic well
-    - Be common misconceptions or partial truths
-    - Not be obviously wrong or silly
-    - Be about the same length as the correct answer
-    
-    Return the response as a JSON array with this exact format:
+    Return as JSON array with format:
     [
         {{
-            "question": "Question text here?",
+            "question": "Question text?",
             "options": ["Option A", "Option B", "Option C", "Option D"],
             "correct_answer": 0,
-            "explanation": "Brief, encouraging explanation of why this is correct"
+            "explanation": "Explanation of why this is correct"
         }}
     ]
-    
-    Only return the JSON array, no additional text.
     """
     
     try:
@@ -619,206 +399,91 @@ def generate_quiz_questions(subtopic: str, topic: str) -> List[Dict[str, Any]]:
             content = content[3:-3]
         
         questions = json.loads(content)
-        return questions
+        return questions[:5]
     except Exception as e:
-        st.error(f"Error generating quiz: {e}")
-        # Fallback quiz
+        # Fallback questions
         return [
             {
                 "question": f"What is the main concept of {subtopic}?",
-                "options": ["Option A", "Option B", "Option C", "Option D"],
+                "options": ["Basic understanding", "Advanced technique", "Historical context", "Future application"],
                 "correct_answer": 0,
-                "explanation": "This is the correct answer because..."
+                "explanation": "This covers the fundamental concept."
             }
         ]
 
 def assess_response_quality(user_input: str, ai_response: str, subtopic: str, learning_level: str) -> int:
-    """Assess the quality of user response and return progress points (0-10)"""
+    """Assess the quality of user's response and return progress points"""
+    
     prompt = f"""
-    You are an expert teacher assessing a {learning_level} student's response during a lesson about "{subtopic}".
+    Assess this student response about "{subtopic}" at {learning_level} level:
     
-    Student's response: "{user_input}"
-    Teacher's previous message: "{ai_response}"
+    Student: "{user_input}"
+    Teacher's explanation: "{ai_response}"
     
-    Rate the student's response quality on a scale of 0-10:
+    Rate understanding from 0-10:
+    0-2: No understanding
+    3-4: Basic awareness
+    5-6: Some understanding
+    7-8: Good understanding
+    9-10: Excellent understanding
     
-    0-2: No response, off-topic, or completely incorrect
-    3-4: Minimal effort, vague response, or misunderstanding
-    5-6: Basic understanding shown, simple response
-    7-8: Good understanding, thoughtful response, shows engagement
-    9-10: Excellent understanding, detailed response, shows deep thinking
-    
-    Consider:
-    - Relevance to the topic
-    - Depth of understanding shown
-    - Engagement and effort
-    - Age-appropriate expectations for {learning_level} level
-    - Whether they're building on previous learning
-    
-    SPECIAL RULE: If the student says "I don't know" or similar, give them 3-4 points for honesty and engagement, not 0.
-    
-    Return only a number from 0-10, no additional text.
+    Return only the number (0-10).
     """
     
     try:
         response = model.generate_content(prompt)
         score = int(response.text.strip())
-        return max(0, min(10, score))  # Ensure score is between 0-10
-    except Exception as e:
-        # Default to moderate score if assessment fails
-        return 5
+        return max(0, min(10, score))
+    except:
+        return 5  # Default middle score
 
 def determine_teaching_adaptation(user_input: str, current_progress: int, learning_level: str) -> str:
-    """Determine how to adapt teaching based on user response and current progress"""
+    """Determine how to adapt teaching based on user response and progress"""
+    
+    if current_progress < 30:
+        return "foundational"
+    elif current_progress < 70:
+        return "intermediate"
+    else:
+        return "advanced"
+
+def handle_chat_response(user_input: str, subtopic: str, topic: str, chat_history: List[Dict], learning_level: str, current_progress: int) -> str:
+    """Generate AI response for chat interaction"""
+    
+    adaptation = determine_teaching_adaptation(user_input, current_progress, learning_level)
+    
+    # Build context from chat history
+    context = ""
+    if len(chat_history) > 0:
+        recent_messages = chat_history[-3:]  # Last 3 messages
+        context = "\n".join([f"{msg['role']}: {msg['content']}" for msg in recent_messages])
+    
     prompt = f"""
-    You are an expert teacher adapting your lesson for a {learning_level} student.
+    You are an expert teacher helping a {learning_level} level student learn about "{subtopic}" within "{topic}".
+    
+    Current progress: {current_progress}%
+    Teaching adaptation: {adaptation}
+    
+    Recent conversation:
+    {context}
     
     Student's latest response: "{user_input}"
-    Current learning progress: {current_progress}%
     
-    Based on this response and progress, determine the teaching adaptation needed to move toward 100% knowledge:
+    Respond as a warm, encouraging teacher who:
+    1. Acknowledges the student's input
+    2. Provides helpful guidance or explanation
+    3. Asks exactly one engaging question to continue learning
+    4. Adapts to the student's current understanding level
+    5. Keeps the conversation flowing naturally
     
-    If progress is 0-20% and response shows confusion or "I don't know":
-    - "REVIEW_BASICS" - Go back to fundamental concepts, use simpler language
-    
-    If progress is 0-20% and response shows basic understanding:
-    - "BUILD_FOUNDATION" - Continue with foundational concepts, add more examples
-    
-    If progress is 21-50% and response shows good understanding:
-    - "ADVANCE_SLOWLY" - Introduce more complex concepts gradually
-    
-    If progress is 21-50% and response shows confusion or "I don't know":
-    - "CLARIFY_CONCEPTS" - Re-explain current concepts with different examples
-    
-    If progress is 51-80% and response shows strong understanding:
-    - "CHALLENGE_DEEPER" - Introduce advanced concepts and critical thinking
-    
-    If progress is 51-80% and response shows gaps or "I don't know":
-    - "REINFORCE_CORE" - Strengthen understanding of core concepts
-    
-    If progress is 81-100% and response shows mastery:
-    - "APPLY_KNOWLEDGE" - Focus on real-world applications and synthesis
-    
-    If progress is 81-100% and response shows gaps or "I don't know":
-    - "FILL_GAPS" - Address specific areas of misunderstanding
-    
-    Return only the adaptation strategy (e.g., "REVIEW_BASICS", "ADVANCE_SLOWLY"), no additional text.
+    Keep your response under 200 words and make it conversational.
     """
     
     try:
         response = model.generate_content(prompt)
         return response.text.strip()
     except Exception as e:
-        # Default adaptation based on progress
-        if current_progress < 30:
-            return "BUILD_FOUNDATION"
-        elif current_progress < 70:
-            return "ADVANCE_SLOWLY"
-        else:
-            return "CHALLENGE_DEEPER"
-
-def handle_chat_response(user_input: str, subtopic: str, topic: str, chat_history: List[Dict], learning_level: str, current_progress: int) -> str:
-    """Handle user chat input and generate AI response with adaptive teaching"""
-    
-    # Build conversation context
-    conversation_context = ""
-    if chat_history:
-        # Include last few exchanges for context
-        recent_history = chat_history[-6:]  # Last 3 exchanges (6 messages)
-        for msg in recent_history:
-            role = "Student" if msg["role"] == "user" else "Teacher"
-            conversation_context += f"{role}: {msg['content']}\n"
-    
-    # Determine teaching adaptation
-    adaptation = determine_teaching_adaptation(user_input, current_progress, learning_level)
-    
-    # Define level-specific teaching styles
-    level_styles = {
-        "elementary": {
-            "tone": "warm, encouraging, and very patient like a caring elementary teacher",
-            "language": "simple, clear, and uses lots of examples and analogies",
-            "approach": "very hands-on with concrete examples and step-by-step guidance"
-        },
-        "middle": {
-            "tone": "enthusiastic and supportive like a middle school teacher who believes in you",
-            "language": "clear but more sophisticated, uses relatable examples",
-            "approach": "encourages critical thinking while providing structure"
-        },
-        "high": {
-            "tone": "professional yet approachable like a knowledgeable high school teacher",
-            "language": "more sophisticated vocabulary, detailed explanations",
-            "approach": "encourages independent thinking and deeper analysis"
-        },
-        "adult": {
-            "tone": "professional and collaborative like a subject matter expert",
-            "language": "sophisticated vocabulary, assumes prior knowledge",
-            "approach": "focuses on practical applications and advanced concepts"
-        }
-    }
-    
-    style = level_styles.get(learning_level, level_styles["middle"])
-    
-    # Define adaptation strategies focused on progress toward 100%
-    adaptation_strategies = {
-        "REVIEW_BASICS": "Go back to the very basics. Use extremely simple language, lots of analogies, and concrete examples. Build confidence step by step toward understanding.",
-        "BUILD_FOUNDATION": "Continue building the foundation. Use clear explanations with multiple examples. Ensure solid understanding before moving forward toward mastery.",
-        "ADVANCE_SLOWLY": "Introduce slightly more complex concepts gradually. Build on what they know while adding new layers of understanding to reach deeper knowledge.",
-        "CLARIFY_CONCEPTS": "Re-explain current concepts using different examples and approaches. Address any confusion directly to keep progress moving forward.",
-        "CHALLENGE_DEEPER": "Introduce more advanced concepts and encourage critical thinking. Push them to think more deeply about the topic to reach expert level.",
-        "REINFORCE_CORE": "Strengthen understanding of core concepts. Use different examples and applications to solidify knowledge for mastery.",
-        "APPLY_KNOWLEDGE": "Focus on real-world applications and synthesis. Help them connect concepts and think creatively to achieve full understanding.",
-        "FILL_GAPS": "Address specific areas of misunderstanding. Provide targeted explanations for any gaps in knowledge to reach 100% comprehension."
-    }
-    
-    adaptation_instruction = adaptation_strategies.get(adaptation, "Continue building understanding with appropriate challenge level toward mastery.")
-    
-    prompt = f"""
-    You are an expert teacher helping a {learning_level} student learn about "{subtopic}" within the broader topic of "{topic}".
-    
-    TEACHING STYLE: {style['tone']}
-    LANGUAGE: {style['language']}
-    APPROACH: {style['approach']}
-    
-    CURRENT PROGRESS: {current_progress}%
-    GOAL: Get student from 0% to 100% knowledge of "{subtopic}"
-    ADAPTATION STRATEGY: {adaptation}
-    ADAPTATION INSTRUCTION: {adaptation_instruction}
-    
-    Previous conversation context:
-    {conversation_context}
-    
-    The student just said: "{user_input}"
-    
-    Your response should:
-    - Use {style['tone']} and {style['language']}
-    - Follow the {adaptation} strategy: {adaptation_instruction}
-    - Be SHORT and CONCISE (1-2 paragraphs maximum)
-    - Focus on moving the lesson FORWARD toward 100% knowledge
-    - Ask EXACTLY ONE question that progresses the learning journey
-    - Connect to real-world relevance
-    - TAKE INITIATIVE: Guide the process step by step
-    - End with ONLY ONE engaging question that moves them closer to mastery
-    - Adapt the difficulty level based on their current progress ({current_progress}%)
-    
-    CRITICAL RULES:
-    1. Ask EXACTLY ONE question - no more, no less
-    2. Do NOT ask yes/no questions - ask open-ended questions that encourage thinking
-    3. Every response should help move from current progress ({current_progress}%) toward 100% knowledge
-    4. Each question and explanation should be a step forward in the learning journey
-    5. If they say "I don't know", be encouraging and provide a simpler explanation
-    
-    If progress is low (0-30%): Use simpler language, more examples, build confidence
-    If progress is medium (31-70%): Balance explanation with challenge, encourage deeper thinking
-    If progress is high (71-100%): Focus on applications, synthesis, and advanced concepts
-    
-    Remember: You're actively guiding their learning journey from no knowledge to complete mastery!
-    """
-    
-    try:
-        response = model.generate_content(prompt)
-        return response.text
-    except Exception as e:
-        return "That's a great question! Let's explore this together and move forward in our learning journey..."
+        return f"Thank you for sharing that about {subtopic}! That's a great point. What aspect of {subtopic} would you like to explore next?"
 
 def show_login_page():
     """Display login page"""
@@ -831,9 +496,12 @@ def show_login_page():
             username = st.text_input("Username:", placeholder="Enter your username")
             password = st.text_input("Password:", type="password", placeholder="Enter your password")
             
-            col1, col2 = st.columns([1, 1])
-            with col1:
+            # Make buttons wider and better positioned
+            col1, col2, col3 = st.columns([1, 2, 1])
+            with col2:
                 submit_button = st.form_submit_button("🔐 Login", use_container_width=True)
+            
+            col1, col2, col3 = st.columns([1, 2, 1])
             with col2:
                 signup_button = st.form_submit_button("📝 Sign Up", use_container_width=True)
             
@@ -857,12 +525,14 @@ def show_login_page():
         # Continue as Guest button (outside the form)
         st.markdown("---")
         st.markdown("### Or continue without an account:")
-        if st.button("👤 Continue as Guest", use_container_width=True):
-            st.session_state.authenticated = True
-            st.session_state.user_id = None
-            st.session_state.username = "Guest"
-            st.session_state.is_guest = True
-            st.rerun()
+        col1, col2, col3 = st.columns([1, 2, 1])
+        with col2:
+            if st.button("👤 Continue as Guest", use_container_width=True):
+                st.session_state.authenticated = True
+                st.session_state.user_id = None
+                st.session_state.username = "Guest"
+                st.session_state.is_guest = True
+                st.rerun()
 
 def show_signup_page():
     """Display signup page"""
@@ -873,26 +543,23 @@ def show_signup_page():
     col1, col2, col3 = st.columns([1, 2, 1])
     
     with col2:
-        st.markdown('<h2 class="sub-header">Create Your Account</h2>', unsafe_allow_html=True)
-        
         with st.form("signup_form"):
             username = st.text_input("Username", placeholder="Choose a username")
-            password = st.text_input("Password", type="password", placeholder="Choose a password")
+            password = st.text_input("Password", type="password", placeholder="Create a password")
             confirm_password = st.text_input("Confirm Password", type="password", placeholder="Confirm your password")
+            
+            # Make the signup button wider
             submit_button = st.form_submit_button("📝 Create Account", use_container_width=True)
             
             if submit_button:
                 if username and password and confirm_password:
                     if password == confirm_password:
-                        if len(password) >= 6:
-                            if create_user(username, password):
-                                st.success("✅ Account created successfully! Please log in.")
-                                st.session_state.show_signup = False
-                                st.rerun()
-                            else:
-                                st.error("❌ Username already exists")
+                        if create_user(username, password):
+                            st.success("✅ Account created successfully! You can now login.")
+                            st.session_state.show_signup = False
+                            st.rerun()
                         else:
-                            st.warning("⚠️ Password must be at least 6 characters long")
+                            st.error("❌ Username already exists")
                     else:
                         st.error("❌ Passwords do not match")
                 else:
@@ -1023,6 +690,20 @@ def main():
         st.sidebar.markdown(f"## 👤 Welcome, Guest!")
     else:
         st.sidebar.markdown(f"## 👤 Welcome, {st.session_state.username}!")
+    
+    # Home button
+    if st.sidebar.button("🏠 Home", use_container_width=True):
+        # Reset to topic selection
+        st.session_state.current_topic = None
+        st.session_state.current_subtopic = None
+        st.session_state.mode = None
+        st.session_state.chat_history = []
+        st.session_state.quiz_questions = []
+        st.session_state.current_question = 0
+        st.session_state.quiz_score = 0
+        st.session_state.quiz_answers = []
+        st.session_state.learning_progress = 0
+        st.rerun()
     
     # Logout button
     if st.sidebar.button("🚪 Logout", use_container_width=True):
