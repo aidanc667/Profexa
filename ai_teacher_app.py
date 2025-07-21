@@ -293,14 +293,15 @@ st.markdown("""
         padding: 0.75rem !important;
     }
     
+    /* Fix selectbox width and arrow alignment */
+    .stSelectbox, .stSelectbox > div, .stSelectbox > div > div {
+        width: 100% !important;
+        box-sizing: border-box !important;
+    }
     .stSelectbox > div > div > div {
         font-size: 1.1rem !important;
         padding: 0.75rem !important;
-        min-width: 220px !important;
-        max-width: 100% !important;
-        white-space: normal !important;
-        text-overflow: ellipsis !important;
-        overflow-wrap: break-word !important;
+        /* Remove min-width, max-width, white-space, text-overflow, overflow-wrap */
     }
     
     /* Make login/signup buttons wider with gradient */
