@@ -299,8 +299,12 @@ st.markdown("""
         box-sizing: border-box !important;
     }
     .stSelectbox > div > div > div {
-        font-size: 1rem !important;
-        padding: 0.75rem !important;
+        font-size: 0.95rem !important;
+        padding: 0.5rem !important;
+        font-family: 'Inter', 'Segoe UI', 'Arial', 'sans-serif' !important;
+        white-space: nowrap !important;
+        text-overflow: ellipsis !important;
+        overflow: hidden !important;
         /* Remove min-width, max-width, white-space, text-overflow, overflow-wrap */
     }
     
