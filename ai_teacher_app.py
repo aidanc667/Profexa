@@ -570,41 +570,7 @@ def handle_chat_response(user_input: str, subtopic: str, topic: str, chat_histor
         teaching_phase = "mastery"
         focus = "advanced concepts and expert-level understanding"
     
-    # First, check if the user's input is relevant to the subtopic
-    relevance_prompt = f"""
-    Assess if this student response is relevant to learning about "{subtopic}" within "{topic}":
-    Student: "{user_input}"
-    
-    Consider:
-    1. Is the response related to {subtopic}?
-    2. Does it contribute to learning about this topic?
-    3. Is it a coherent, meaningful response?
-    4. Is it on-topic or completely off-topic?
-    
-    Return only "RELEVANT" or "OFF_TOPIC".
-    """
-    
-    try:
-        relevance_response = model.generate_content(relevance_prompt)
-        is_relevant = "RELEVANT" in relevance_response.text.strip().upper()
-    except:
-        is_relevant = True  # Default to relevant if assessment fails
-    
-    # If the response is off-topic, redirect the user
-    if not is_relevant:
-        redirect_response = f"""
-        I notice your response doesn't seem related to {subtopic}. 
-        Let's stay focused on learning about {subtopic} so you can master this topic!
-        
-        What would you like to know about {subtopic}? For example:
-        - What are the basic concepts?
-        - How does it work?
-        - What are some examples?
-        - What questions do you have about {subtopic}?
-        """
-        return redirect_response.strip()
-    
-    # If relevant, proceed with normal teaching
+    # Generate AI response with progressive teaching
     prompt = f"""
     You are an expert teacher helping a {learning_level} level student learn about "{subtopic}" within "{topic}".
     
@@ -624,6 +590,7 @@ def handle_chat_response(user_input: str, subtopic: str, topic: str, chat_histor
     4. Ask exactly one engaging question that moves learning forward
     5. Ensure your response contributes to reaching 100% mastery
     6. Keep responses conversational but educational (150-200 words)
+    7. Always try to connect the student's input back to {subtopic} in a helpful way
     
     Teaching strategy by phase:
     - Introduction (0-25%): Build interest, introduce basic concepts
@@ -632,6 +599,7 @@ def handle_chat_response(user_input: str, subtopic: str, topic: str, chat_histor
     - Mastery (75-100%): Advanced concepts, expert-level insights
     
     Always maintain conversation flow and build toward complete mastery of {subtopic}.
+    If the student's input seems unrelated, gently guide them back to {subtopic} while being helpful and encouraging.
     """
     
     try:
@@ -1064,19 +1032,19 @@ def main():
             st.session_state.mode = "quiz"
             st.rerun()
         
-        # Handle button clicks and Enter key press - improved logic
+        # Handle button clicks and Enter key press - improved mobile compatibility
         message_sent = False
         actual_input = ""
         
-        # Check for button clicks first
+        # Simplified logic for better mobile compatibility
         if send_button and user_input.strip():
             actual_input = user_input.strip()
             message_sent = True
         elif dont_know_button:
             actual_input = "I don't know"
             message_sent = True
-        # Check for Enter key press (when user_input has content but no button was clicked)
-        elif user_input and user_input.strip() and not send_button and not dont_know_button:
+        elif user_input and user_input.strip():
+            # For mobile devices, treat any input as a message to send
             actual_input = user_input.strip()
             message_sent = True
         
@@ -1112,14 +1080,8 @@ def main():
                             st.session_state.learning_level
                         )
                         
-                        # Check if the response was off-topic (AI redirected them)
-                        is_off_topic = "doesn't seem related" in ai_response or "stay focused" in ai_response
-                        
                         # Faster progress updates for reasonable advancement to 100%
-                        if is_off_topic:
-                            # For off-topic responses, no progress change - just redirect
-                            pass
-                        elif progress_points <= 3:
+                        if progress_points <= 3:
                             # For wrong answers, just teach without mentioning they need help
                             # Small decrease but not too much
                             st.session_state.learning_progress = max(0, st.session_state.learning_progress - 1)
