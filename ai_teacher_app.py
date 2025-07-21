@@ -1029,66 +1029,75 @@ def main():
             st.session_state.mode = "quiz"
             st.rerun()
         
-        # Handle button clicks and Enter key press
-        if send_button or dont_know_button or (user_input and user_input.strip()):
-            if 'last_user_input' not in st.session_state:
-                st.session_state.last_user_input = ""
-            actual_input = "I don't know" if dont_know_button else user_input.strip()
-            if actual_input and actual_input != st.session_state.last_user_input:
-                # Add user message to history
-                st.session_state.chat_history.append({"role": "user", "content": actual_input})
-                st.session_state.last_user_input = actual_input
+        # Handle button clicks and Enter key press - simplified logic
+        message_sent = False
+        
+        # Check for button clicks first
+        if send_button and user_input.strip():
+            actual_input = user_input.strip()
+            message_sent = True
+        elif dont_know_button:
+            actual_input = "I don't know"
+            message_sent = True
+        # Check for Enter key press (when user_input has content but no button was clicked)
+        elif user_input and user_input.strip() and not send_button and not dont_know_button:
+            actual_input = user_input.strip()
+            message_sent = True
+        
+        if message_sent:
+            # Add user message to history
+            st.session_state.chat_history.append({"role": "user", "content": actual_input})
+            
+            # Generate AI response with progressive teaching
+            with st.spinner("🤖 Thinking..."):
+                ai_response = handle_chat_response(
+                    actual_input,
+                    st.session_state.current_subtopic,
+                    st.session_state.current_topic,
+                    st.session_state.chat_history,
+                    st.session_state.learning_level,
+                    st.session_state.learning_progress
+                )
                 
-                # Generate AI response with progressive teaching
-                with st.spinner("🤖 Thinking..."):
-                    ai_response = handle_chat_response(
+                # Assess response quality and update progress intelligently
+                if len(st.session_state.chat_history) >= 2:
+                    progress_points = assess_response_quality(
                         actual_input,
+                        st.session_state.chat_history[-3]["content"] if len(st.session_state.chat_history) >= 3 else "",
                         st.session_state.current_subtopic,
-                        st.session_state.current_topic,
-                        st.session_state.chat_history,
-                        st.session_state.learning_level,
-                        st.session_state.learning_progress
+                        st.session_state.learning_level
                     )
                     
-                    # Assess response quality and update progress intelligently
-                    if len(st.session_state.chat_history) >= 2:
-                        progress_points = assess_response_quality(
-                            actual_input,
-                            st.session_state.chat_history[-3]["content"] if len(st.session_state.chat_history) >= 3 else "",
-                            st.session_state.current_subtopic,
-                            st.session_state.learning_level
-                        )
-                        
-                        # Smart progress updates based on answer quality
-                        if progress_points <= 3:
-                            ai_response = f"That answer shows you need more help with {st.session_state.current_subtopic}. Let me guide you better. {ai_response}"
-                            # Small decrease for wrong answers, but don't go below 0
-                            st.session_state.learning_progress = max(0, st.session_state.learning_progress - 2)
-                        elif progress_points >= 7:
-                            # Progressive increase based on quality
-                            increase = min(progress_points, 100 - st.session_state.learning_progress)
-                            st.session_state.learning_progress = min(100, st.session_state.learning_progress + increase)
-                        # For scores 4-6, small increase to encourage learning
-                        else:
-                            st.session_state.learning_progress = min(100, st.session_state.learning_progress + 1)
-                    
-                    # Add AI response to history
-                    st.session_state.chat_history.append({"role": "ai", "content": ai_response})
-                    
-                    # Save learning session (only for authenticated users)
-                    if 'user_id' in st.session_state and st.session_state.user_id and not st.session_state.get('is_guest', False):
-                        save_learning_session(
-                            st.session_state.user_id,
-                            st.session_state.current_topic,
-                            st.session_state.current_subtopic,
-                            st.session_state.learning_level,
-                            "learn",
-                            st.session_state.learning_progress,
-                            st.session_state.chat_history
-                        )
+                    # Faster progress updates for reasonable advancement to 100%
+                    if progress_points <= 3:
+                        # For wrong answers, just teach without mentioning they need help
+                        # Small decrease but not too much
+                        st.session_state.learning_progress = max(0, st.session_state.learning_progress - 1)
+                    elif progress_points >= 7:
+                        # Faster increase for good answers - more points
+                        increase = min(progress_points * 2, 100 - st.session_state.learning_progress)
+                        st.session_state.learning_progress = min(100, st.session_state.learning_progress + increase)
+                    # For scores 4-6, moderate increase to encourage learning
+                    else:
+                        st.session_state.learning_progress = min(100, st.session_state.learning_progress + 3)
                 
-                # Clear the input field and rerun to show new messages
-                st.rerun()
+                # Add AI response to history
+                st.session_state.chat_history.append({"role": "ai", "content": ai_response})
+                
+                # Save learning session (only for authenticated users)
+                if 'user_id' in st.session_state and st.session_state.user_id and not st.session_state.get('is_guest', False):
+                    save_learning_session(
+                        st.session_state.user_id,
+                        st.session_state.current_topic,
+                        st.session_state.current_subtopic,
+                        st.session_state.learning_level,
+                        "learn",
+                        st.session_state.learning_progress,
+                        st.session_state.chat_history
+                    )
+            
+            # Clear the input field and rerun to show new messages
+            st.rerun()
     
     elif st.session_state.mode == "quiz":
         # Quiz mode
