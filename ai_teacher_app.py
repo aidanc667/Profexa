@@ -125,7 +125,7 @@ def get_user_learning_history(user_id: int) -> List[Dict]:
     cursor = conn.cursor()
     
     cursor.execute('''
-        SELECT topic, subtopic, learning_level, mode, progress, quiz_score, quiz_total, 
+        SELECT id, topic, subtopic, learning_level, mode, progress, quiz_score, quiz_total, 
                started_at, last_accessed, chat_history
         FROM learning_history 
         WHERE user_id = ? 
@@ -138,19 +138,34 @@ def get_user_learning_history(user_id: int) -> List[Dict]:
     history = []
     for row in results:
         history.append({
-            'topic': row[0],
-            'subtopic': row[1],
-            'learning_level': row[2],
-            'mode': row[3],
-            'progress': row[4],
-            'quiz_score': row[5],
-            'quiz_total': row[6],
-            'started_at': row[7],
-            'last_accessed': row[8],
-            'chat_history': json.loads(row[9]) if row[9] else []
+            'id': row[0],
+            'topic': row[1],
+            'subtopic': row[2],
+            'learning_level': row[3],
+            'mode': row[4],
+            'progress': row[5],
+            'quiz_score': row[6],
+            'quiz_total': row[7],
+            'started_at': row[8],
+            'last_accessed': row[9],
+            'chat_history': json.loads(row[10]) if row[10] else []
         })
     
     return history
+
+def delete_learning_session(session_id: int) -> bool:
+    """Delete a learning session from the database"""
+    try:
+        conn = sqlite3.connect('ai_teacher.db')
+        cursor = conn.cursor()
+        
+        cursor.execute('DELETE FROM learning_history WHERE id = ?', (session_id,))
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        st.error(f"Error deleting session: {e}")
+        return False
 
 # Initialize database
 init_database()
@@ -166,6 +181,25 @@ st.set_page_config(
 # Custom CSS
 st.markdown("""
 <style>
+    /* Force white background on all devices */
+    .main {
+        background-color: white !important;
+    }
+    
+    .stApp {
+        background-color: white !important;
+    }
+    
+    /* Override dark mode for mobile */
+    @media (prefers-color-scheme: dark) {
+        .main {
+            background-color: white !important;
+        }
+        .stApp {
+            background-color: white !important;
+        }
+    }
+    
     .main-header {
         font-size: 3rem !important;
         font-weight: bold !important;
@@ -224,8 +258,8 @@ st.markdown("""
     }
     
     .stButton > button {
-        font-size: 1.1rem !important;
-        padding: 0.75rem 1.5rem !important;
+        font-size: 1rem !important;
+        padding: 0.75rem 1rem !important;
         height: auto !important;
         min-height: 50px !important;
         width: 100% !important;
@@ -235,11 +269,23 @@ st.markdown("""
         border-radius: 25px !important;
         font-weight: bold !important;
         transition: all 0.3s !important;
+        white-space: normal !important;
+        word-wrap: break-word !important;
+        line-height: 1.2 !important;
     }
     
     .stButton > button:hover {
         transform: translateY(-2px) !important;
         box-shadow: 0 4px 8px rgba(0,0,0,0.2) !important;
+    }
+    
+    /* Mobile-specific button adjustments */
+    @media (max-width: 768px) {
+        .stButton > button {
+            font-size: 0.9rem !important;
+            padding: 0.6rem 0.8rem !important;
+            min-height: 45px !important;
+        }
     }
     
     .stTextInput > div > div > input {
@@ -391,14 +437,26 @@ def generate_learning_content(subtopic: str, topic: str, learning_level: str) ->
     except Exception as e:
         return f"Welcome to learning about {subtopic}! This is an important part of {topic} that we'll explore together. What would you like to know about {subtopic}?"
 
-def generate_quiz_questions(subtopic: str, topic: str) -> List[Dict[str, Any]]:
-    """Generate quiz questions for a subtopic"""
+def generate_quiz_questions(subtopic: str, topic: str, learning_level: str) -> List[Dict[str, Any]]:
+    """Generate 7 quiz questions for a subtopic based on learning level"""
+    
+    # Adjust difficulty based on learning level
+    level_descriptions = {
+        "elementary": "very basic, simple concepts suitable for young children",
+        "middle": "intermediate concepts with some complexity",
+        "high": "advanced concepts with detailed explanations",
+        "adult": "comprehensive, in-depth questions for adult learners"
+    }
+    
+    difficulty = level_descriptions.get(learning_level, "intermediate")
     
     prompt = f"""
-    Create 5 multiple-choice quiz questions about "{subtopic}" within the topic "{topic}".
+    Create 7 multiple-choice quiz questions about "{subtopic}" within the topic "{topic}".
+    
+    Difficulty level: {difficulty}
     
     Each question should have:
-    - A clear question
+    - A clear question appropriate for {learning_level} level
     - 4 answer options (A, B, C, D)
     - One correct answer
     - A brief explanation of why the answer is correct
@@ -412,6 +470,8 @@ def generate_quiz_questions(subtopic: str, topic: str) -> List[Dict[str, Any]]:
             "explanation": "Explanation of why this is correct"
         }}
     ]
+    
+    Make exactly 7 questions that progressively increase in difficulty within the {learning_level} level.
     """
     
     try:
@@ -423,7 +483,7 @@ def generate_quiz_questions(subtopic: str, topic: str) -> List[Dict[str, Any]]:
             content = content[3:-3]
         
         questions = json.loads(content)
-        return questions[:5]
+        return questions[:7]
     except Exception as e:
         # Fallback questions
         return [
@@ -636,18 +696,27 @@ def show_learning_history():
                     st.write(f"**Progress:** {session['progress']}%")
                     st.write(f"**Last accessed:** {session['last_accessed'][:10]}")
                     
-                    # Resume button
-                    if st.button(f"🔄 Resume", key=f"resume_learn_{i}", use_container_width=True):
-                        st.session_state.current_topic = session['topic']
-                        st.session_state.current_subtopic = session['subtopic']
-                        st.session_state.learning_level = session['learning_level']
-                        st.session_state.mode = session['mode']
-                        st.session_state.learning_progress = session['progress']
-                        st.session_state.chat_history = session['chat_history']
-                        st.session_state.quiz_score = session['quiz_score']
-                        st.session_state.quiz_answers = []
-                        st.session_state.current_question = 0
-                        st.rerun()
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        # Resume button
+                        if st.button(f"🔄 Resume", key=f"resume_learn_{i}", use_container_width=True):
+                            st.session_state.current_topic = session['topic']
+                            st.session_state.current_subtopic = session['subtopic']
+                            st.session_state.learning_level = session['learning_level']
+                            st.session_state.mode = session['mode']
+                            st.session_state.learning_progress = session['progress']
+                            st.session_state.chat_history = session['chat_history']
+                            st.session_state.quiz_score = session['quiz_score']
+                            st.session_state.quiz_answers = []
+                            st.session_state.current_question = 0
+                            st.rerun()
+                    
+                    with col2:
+                        # Delete button
+                        if st.button(f"🗑️ Delete", key=f"delete_learn_{i}", use_container_width=True):
+                            if delete_learning_session(session['id']):
+                                st.success("Session deleted!")
+                                st.rerun()
         
         # Quiz history
         if quiz_history:
@@ -660,16 +729,25 @@ def show_learning_history():
                         st.write(f"**Score:** {session['quiz_score']}/{session['quiz_total']} ({quiz_percentage:.1f}%)")
                     st.write(f"**Taken:** {session['last_accessed'][:10]}")
                     
-                    # Retake quiz button
-                    if st.button(f"🔄 Retake Quiz", key=f"retake_quiz_{i}", use_container_width=True):
-                        st.session_state.current_topic = session['topic']
-                        st.session_state.current_subtopic = session['subtopic']
-                        st.session_state.learning_level = session['learning_level']
-                        st.session_state.mode = "quiz"
-                        st.session_state.quiz_score = 0
-                        st.session_state.quiz_answers = []
-                        st.session_state.current_question = 0
-                        st.rerun()
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        # Retake quiz button
+                        if st.button(f"🔄 Retake Quiz", key=f"retake_quiz_{i}", use_container_width=True):
+                            st.session_state.current_topic = session['topic']
+                            st.session_state.current_subtopic = session['subtopic']
+                            st.session_state.learning_level = session['learning_level']
+                            st.session_state.mode = "quiz"
+                            st.session_state.quiz_score = 0
+                            st.session_state.quiz_answers = []
+                            st.session_state.current_question = 0
+                            st.rerun()
+                    
+                    with col2:
+                        # Delete button
+                        if st.button(f"🗑️ Delete", key=f"delete_quiz_{i}", use_container_width=True):
+                            if delete_learning_session(session['id']):
+                                st.success("Session deleted!")
+                                st.rerun()
 
 def main():
     """Main application function"""
@@ -707,6 +785,7 @@ def main():
         st.session_state.quiz_score = 0
         st.session_state.quiz_answers = []
         st.session_state.learning_progress = 0
+        st.session_state.subtopics = []  # Clear subtopics for new topic
         st.rerun()
     
     # Logout button
@@ -789,6 +868,7 @@ def main():
                 st.session_state.current_topic = topic_input.strip()
                 st.session_state.learning_level = learning_level
                 st.session_state.last_topic_input = topic_input.strip()
+                st.session_state.subtopics = []  # Clear subtopics for new topic
                 st.rerun()
             elif not topic_input.strip():
                 st.warning("Please enter a topic to continue!")
@@ -877,7 +957,7 @@ def main():
                     })
             
             # Display chat messages
-            for message in st.session_state.chat_history:
+            for i, message in enumerate(st.session_state.chat_history):
                 if message["role"] == "user":
                     st.markdown(f'<div class="chat-message user-message">👤 You: {message["content"]}</div>', unsafe_allow_html=True)
                 else:
@@ -897,16 +977,21 @@ def main():
             )
         
         with col2:
-            send_button = st.button("💬 Send", key="send_learn", use_container_width=True)
+            send_button = st.button("💬 Send", key="send_learn", use_container_width=False)
         
         with col3:
-            dont_know_button = st.button("❓ I Don't Know", key="dont_know", use_container_width=True)
+            dont_know_button = st.button("❓ I Don't Know", key="dont_know", use_container_width=False)
         
         # Progress bar at the bottom
         st.markdown('<div class="progress-container">', unsafe_allow_html=True)
         st.markdown(f"**Learning Progress: {st.session_state.learning_progress}%**")
         st.markdown(f'<div class="progress-bar" style="width: {st.session_state.learning_progress}%;"></div>', unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
+        
+        # Go to Quiz button
+        if st.button("🧠 Go to Quiz", key="go_to_quiz", use_container_width=True):
+            st.session_state.mode = "quiz"
+            st.rerun()
         
         # Handle button clicks and Enter key press
         if send_button or dont_know_button or (user_input and user_input.strip()):
@@ -917,7 +1002,8 @@ def main():
             # Determine the actual user input
             actual_input = "I don't know" if dont_know_button else user_input.strip()
             
-            if actual_input != st.session_state.last_user_input and actual_input:
+            # Process the input if it's new and not empty
+            if actual_input and actual_input != st.session_state.last_user_input:
                 # Add user message to history
                 st.session_state.chat_history.append({
                     "role": "user",
@@ -979,12 +1065,14 @@ def main():
     elif st.session_state.mode == "quiz":
         # Quiz mode
         st.markdown(f'<h2 class="sub-header">🧠 Quiz: {st.session_state.current_subtopic}</h2>', unsafe_allow_html=True)
+        st.markdown('<h3 style="text-align: center; color: #666; margin-bottom: 2rem;">(7 questions)</h3>', unsafe_allow_html=True)
         
         if not st.session_state.quiz_questions:
             with st.spinner("🤖 Creating your quiz..."):
                 st.session_state.quiz_questions = generate_quiz_questions(
                     st.session_state.current_subtopic,
-                    st.session_state.current_topic
+                    st.session_state.current_topic,
+                    st.session_state.learning_level
                 )
         
         if st.session_state.current_question < len(st.session_state.quiz_questions):
@@ -998,10 +1086,13 @@ def main():
             selected_answer = st.radio(
                 "Choose your answer:",
                 question_data["options"],
-                key=f"quiz_question_{st.session_state.current_question}"
+                key=f"quiz_question_{st.session_state.current_question}",
+                index=None  # Don't pre-select any answer
             )
             
-            if st.button("✅ Submit Answer", use_container_width=True):
+            # Only enable submit button if an answer is selected
+            submit_disabled = selected_answer is None
+            if st.button("✅ Submit Answer", use_container_width=True, disabled=submit_disabled):
                 correct = question_data["options"].index(selected_answer) == question_data["correct_answer"]
                 if correct:
                     st.session_state.quiz_score += 1
