@@ -296,6 +296,11 @@ st.markdown("""
     .stSelectbox > div > div > div {
         font-size: 1.1rem !important;
         padding: 0.75rem !important;
+        min-width: 220px !important;
+        max-width: 100% !important;
+        white-space: normal !important;
+        text-overflow: ellipsis !important;
+        overflow-wrap: break-word !important;
     }
     
     /* Make login/signup buttons wider with gradient */
