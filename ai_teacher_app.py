@@ -507,23 +507,26 @@ def generate_quiz_questions(subtopic: str, topic: str, learning_level: str) -> L
 
 def assess_response_quality(user_input: str, ai_response: str, subtopic: str, learning_level: str) -> int:
     """Assess the quality of user's response and return progress points"""
-    
     prompt = f"""
     Assess this student response about "{subtopic}" at {learning_level} level:
-    
     Student: "{user_input}"
     Teacher's explanation: "{ai_response}"
     
     Rate understanding from 0-10:
-    0-2: No understanding
-    3-4: Basic awareness
-    5-6: Some understanding
-    7-8: Good understanding
-    9-10: Excellent understanding
+    0-2: No understanding or completely random/irrelevant response
+    3-4: Basic awareness but mostly incorrect or off-topic
+    5-6: Some understanding, partially correct but needs guidance
+    7-8: Good understanding, mostly correct with minor gaps
+    9-10: Excellent understanding, demonstrates mastery
+    
+    Consider:
+    - Relevance to the subtopic
+    - Accuracy of information
+    - Depth of understanding
+    - Engagement with the learning material
     
     Return only the number (0-10).
     """
-    
     try:
         response = model.generate_content(prompt)
         score = int(response.text.strip())
@@ -542,42 +545,65 @@ def determine_teaching_adaptation(user_input: str, current_progress: int, learni
         return "advanced"
 
 def handle_chat_response(user_input: str, subtopic: str, topic: str, chat_history: List[Dict], learning_level: str, current_progress: int) -> str:
-    """Generate AI response for chat interaction"""
+    """Generate AI response for chat interaction with progressive teaching"""
     
     adaptation = determine_teaching_adaptation(user_input, current_progress, learning_level)
     
-    # Build context from chat history
+    # Build comprehensive context from chat history for better memory
     context = ""
     if len(chat_history) > 0:
-        recent_messages = chat_history[-3:]  # Last 3 messages
+        # Include more context for better conversation memory
+        recent_messages = chat_history[-6:]  # Last 6 messages for better context
         context = "\n".join([f"{msg['role']}: {msg['content']}" for msg in recent_messages])
+    
+    # Progressive teaching based on current progress
+    if current_progress < 25:
+        teaching_phase = "introduction"
+        focus = "building basic understanding and interest"
+    elif current_progress < 50:
+        teaching_phase = "foundation"
+        focus = "establishing core concepts and connections"
+    elif current_progress < 75:
+        teaching_phase = "application"
+        focus = "applying knowledge and deeper exploration"
+    else:
+        teaching_phase = "mastery"
+        focus = "advanced concepts and expert-level understanding"
     
     prompt = f"""
     You are an expert teacher helping a {learning_level} level student learn about "{subtopic}" within "{topic}".
     
-    Current progress: {current_progress}%
+    Current progress: {current_progress}% (Phase: {teaching_phase})
+    Teaching focus: {focus}
     Teaching adaptation: {adaptation}
     
-    Recent conversation:
+    Recent conversation context:
     {context}
     
     Student's latest response: "{user_input}"
     
-    Respond as a warm, encouraging teacher who:
-    1. Acknowledges the student's input
-    2. Provides helpful guidance or explanation
-    3. Asks exactly one engaging question to continue learning
-    4. Adapts to the student's current understanding level
-    5. Keeps the conversation flowing naturally
+    As a progressive teacher, you must:
+    1. Acknowledge the student's input appropriately
+    2. Build upon previous knowledge from the conversation
+    3. Provide the next logical step in learning based on current progress
+    4. Ask exactly one engaging question that moves learning forward
+    5. Ensure your response contributes to reaching 100% mastery
+    6. Keep responses conversational but educational (150-200 words)
     
-    Keep your response under 200 words and make it conversational.
+    Teaching strategy by phase:
+    - Introduction (0-25%): Build interest, introduce basic concepts
+    - Foundation (25-50%): Establish core understanding, make connections
+    - Application (50-75%): Apply knowledge, explore deeper aspects
+    - Mastery (75-100%): Advanced concepts, expert-level insights
+    
+    Always maintain conversation flow and build toward complete mastery of {subtopic}.
     """
     
     try:
         response = model.generate_content(prompt)
         return response.text.strip()
     except Exception as e:
-        return f"Thank you for sharing that about {subtopic}! That's a great point. What aspect of {subtopic} would you like to explore next?"
+        return f"Thank you for sharing that about {subtopic}! That's a great point. What aspect of {subtopic} would you like to explore next to continue building your knowledge?"
 
 def show_login_page():
     """Display login page"""
@@ -1005,25 +1031,15 @@ def main():
         
         # Handle button clicks and Enter key press
         if send_button or dont_know_button or (user_input and user_input.strip()):
-            # Check if this is a new message (not just the initial load)
             if 'last_user_input' not in st.session_state:
                 st.session_state.last_user_input = ""
-            
-            # Determine the actual user input
             actual_input = "I don't know" if dont_know_button else user_input.strip()
-            
-            # Process the input if it's new and not empty
             if actual_input and actual_input != st.session_state.last_user_input:
                 # Add user message to history
-                st.session_state.chat_history.append({
-                    "role": "user",
-                    "content": actual_input
-                })
-                
-                # Update last input to prevent duplicate processing
+                st.session_state.chat_history.append({"role": "user", "content": actual_input})
                 st.session_state.last_user_input = actual_input
                 
-                # Generate AI response with adaptive teaching
+                # Generate AI response with progressive teaching
                 with st.spinner("🤖 Thinking..."):
                     ai_response = handle_chat_response(
                         actual_input,
@@ -1033,12 +1049,8 @@ def main():
                         st.session_state.learning_level,
                         st.session_state.learning_progress
                     )
-                    st.session_state.chat_history.append({
-                        "role": "ai",
-                        "content": ai_response
-                    })
                     
-                    # Assess response quality and update progress
+                    # Assess response quality and update progress intelligently
                     if len(st.session_state.chat_history) >= 2:
                         progress_points = assess_response_quality(
                             actual_input,
@@ -1047,29 +1059,35 @@ def main():
                             st.session_state.learning_level
                         )
                         
-                        # Only increase progress if the response shows understanding (not wrong answers)
-                        if progress_points >= 5:  # Only progress for good understanding
-                            progress_increment = min(progress_points, 100 - st.session_state.learning_progress)
-                            st.session_state.learning_progress += progress_increment
-                            
-                            # Ensure progress doesn't exceed 100
-                            st.session_state.learning_progress = min(100, st.session_state.learning_progress)
-                        # If progress_points < 5, progress stays the same (wrong answer)
+                        # Smart progress updates based on answer quality
+                        if progress_points <= 3:
+                            ai_response = f"That answer shows you need more help with {st.session_state.current_subtopic}. Let me guide you better. {ai_response}"
+                            # Small decrease for wrong answers, but don't go below 0
+                            st.session_state.learning_progress = max(0, st.session_state.learning_progress - 2)
+                        elif progress_points >= 7:
+                            # Progressive increase based on quality
+                            increase = min(progress_points, 100 - st.session_state.learning_progress)
+                            st.session_state.learning_progress = min(100, st.session_state.learning_progress + increase)
+                        # For scores 4-6, small increase to encourage learning
+                        else:
+                            st.session_state.learning_progress = min(100, st.session_state.learning_progress + 1)
+                    
+                    # Add AI response to history
+                    st.session_state.chat_history.append({"role": "ai", "content": ai_response})
+                    
+                    # Save learning session (only for authenticated users)
+                    if 'user_id' in st.session_state and st.session_state.user_id and not st.session_state.get('is_guest', False):
+                        save_learning_session(
+                            st.session_state.user_id,
+                            st.session_state.current_topic,
+                            st.session_state.current_subtopic,
+                            st.session_state.learning_level,
+                            "learn",
+                            st.session_state.learning_progress,
+                            st.session_state.chat_history
+                        )
                 
-                # Save learning session (only for authenticated users)
-                if 'user_id' in st.session_state and st.session_state.user_id and not st.session_state.get('is_guest', False):
-                    save_learning_session(
-                        st.session_state.user_id,
-                        st.session_state.current_topic,
-                        st.session_state.current_subtopic,
-                        st.session_state.learning_level,
-                        "learn",
-                        st.session_state.learning_progress,
-                        st.session_state.chat_history
-                    )
-                
-                # Clear the input and rerun
-                st.session_state.last_user_input = ""
+                # Clear the input field and rerun to show new messages
                 st.rerun()
     
     elif st.session_state.mode == "quiz":
