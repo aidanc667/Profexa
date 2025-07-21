@@ -299,7 +299,7 @@ st.markdown("""
         box-sizing: border-box !important;
     }
     .stSelectbox > div > div > div {
-        font-size: 1.1rem !important;
+        font-size: 1rem !important;
         padding: 0.75rem !important;
         /* Remove min-width, max-width, white-space, text-overflow, overflow-wrap */
     }
