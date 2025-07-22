@@ -556,6 +556,9 @@ def handle_chat_response(user_input: str, subtopic: str, topic: str, chat_histor
         recent_messages = chat_history[-6:]  # Last 6 messages for better context
         context = "\n".join([f"{msg['role']}: {msg['content']}" for msg in recent_messages])
     
+    # Determine if this is the first message (no AI responses yet)
+    is_first_message = len([msg for msg in chat_history if msg['role'] == 'ai']) == 0
+    
     # Progressive teaching based on current progress
     if current_progress < 25:
         teaching_phase = "introduction"
@@ -570,43 +573,74 @@ def handle_chat_response(user_input: str, subtopic: str, topic: str, chat_histor
         teaching_phase = "mastery"
         focus = "advanced concepts and expert-level understanding"
     
-    # Generate AI response with progressive teaching
+    # Generate AI response with enhanced teaching strategy
     prompt = f"""
     You are an expert teacher helping a {learning_level} level student learn about "{subtopic}" within "{topic}".
     
     Current progress: {current_progress}% (Phase: {teaching_phase})
     Teaching focus: {focus}
     Teaching adaptation: {adaptation}
+    Is this the first message: {is_first_message}
     
     Recent conversation context:
     {context}
     
     Student's latest response: "{user_input}"
     
-    As a progressive teacher, you must:
-    1. Acknowledge the student's input appropriately
-    2. Build upon previous knowledge from the conversation
-    3. Provide the next logical step in learning based on current progress
-    4. Ask exactly one engaging question that moves learning forward
-    5. Ensure your response contributes to reaching 100% mastery
-    6. Keep responses conversational but educational (150-200 words)
-    7. Always try to connect the student's input back to {subtopic} in a helpful way
+    CRITICAL TEACHING REQUIREMENTS:
     
-    Teaching strategy by phase:
-    - Introduction (0-25%): Build interest, introduce basic concepts
-    - Foundation (25-50%): Establish core understanding, make connections
-    - Application (50-75%): Apply knowledge, explore deeper aspects
-    - Mastery (75-100%): Advanced concepts, expert-level insights
+    1. **FIRST MESSAGE STRATEGY**: If this is the first message, start with a compelling introduction that:
+       - Captures the student's interest in {subtopic}
+       - Explains why {subtopic} is important and relevant
+       - Asks ONE clear, engaging question that introduces the most fundamental concept
+       - Makes the student excited to learn more
     
-    Always maintain conversation flow and build toward complete mastery of {subtopic}.
-    If the student's input seems unrelated, gently guide them back to {subtopic} while being helpful and encouraging.
+    2. **FOLLOW-UP STRATEGY**: For subsequent messages:
+       - Acknowledge the student's response thoughtfully
+       - Provide clear, concise explanations that build on their understanding
+       - Ask ONE specific question that:
+         * Addresses gaps in their knowledge based on their response
+         * Moves them to the next logical learning step
+         * Is appropriate for their current progress level
+         * Helps them think deeper about the concept
+    
+    3. **QUESTION QUALITY STANDARDS**:
+       - Questions must be clear and specific (not vague)
+       - Questions should encourage critical thinking
+       - Questions must be appropriate for {learning_level} level
+       - Questions should build progressively toward mastery
+       - Questions should relate directly to {subtopic}
+    
+    4. **TEACHING PHASE GUIDELINES**:
+       - Introduction (0-25%): Ask foundational questions about basic concepts
+       - Foundation (25-50%): Ask questions that connect concepts and build understanding
+       - Application (50-75%): Ask questions that apply knowledge to real situations
+       - Mastery (75-100%): Ask advanced questions that demonstrate deep understanding
+    
+    5. **RESPONSE STRUCTURE**:
+       - Keep responses conversational but educational (150-200 words)
+       - Always end with exactly ONE engaging question
+       - Ensure the question moves learning forward
+       - Connect everything back to {subtopic}
+    
+    6. **ADAPTATION**: Based on the student's response:
+       - If they show good understanding: Ask a more challenging question
+       - If they struggle: Provide more explanation and ask a simpler question
+       - If they're confused: Clarify and ask a foundational question
+       - If they're excited: Build on their enthusiasm with deeper questions
+    
+    Remember: Your goal is to guide the student to 100% mastery of {subtopic} through clear, engaging questions and explanations.
     """
     
     try:
         response = model.generate_content(prompt)
         return response.text.strip()
     except Exception as e:
-        return f"Thank you for sharing that about {subtopic}! That's a great point. What aspect of {subtopic} would you like to explore next to continue building your knowledge?"
+        # Check if this is the first message
+        if len([msg for msg in chat_history if msg['role'] == 'ai']) == 0:
+            return f"Welcome to learning about {subtopic}! This is an exciting topic within {topic}. Let me start by asking: What do you think {subtopic} is all about, and why might it be important to understand?"
+        else:
+            return f"Thank you for sharing that about {subtopic}! That's a great point. What aspect of {subtopic} would you like to explore next to continue building your knowledge?"
 
 def show_login_page():
     """Display login page"""
