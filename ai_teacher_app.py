@@ -1005,14 +1005,15 @@ def main():
         # User input with Enter key support and I Don't Know button
         col1, col2, col3 = st.columns([4, 1, 1])
         
+        # Initialize session state for input if not present
+        if 'learn_input' not in st.session_state:
+            st.session_state['learn_input'] = ""
+        
         with col1:
-            # Use a unique key that changes to force clearing
-            input_key = f"learn_input_{len(st.session_state.chat_history)}"
             user_input = st.text_input(
                 "Ask me anything about this topic or respond to my questions:",
-                key=input_key,
-                placeholder="Type your question or response here... (Press Enter to send)",
-                value=""
+                key='learn_input',
+                placeholder="Type your question or response here... (Press Enter to send)"
             )
         
         with col2:
@@ -1032,20 +1033,19 @@ def main():
             st.session_state.mode = "quiz"
             st.rerun()
         
-        # Handle button clicks and Enter key press - improved mobile compatibility
+        # Handle button clicks and Enter key press - robust for mobile
         message_sent = False
         actual_input = ""
         
-        # Simplified logic for better mobile compatibility
-        if send_button and user_input.strip():
-            actual_input = user_input.strip()
+        if send_button and st.session_state['learn_input'].strip():
+            actual_input = st.session_state['learn_input'].strip()
             message_sent = True
         elif dont_know_button:
             actual_input = "I don't know"
             message_sent = True
-        elif user_input and user_input.strip():
+        elif st.session_state['learn_input'] and st.session_state['learn_input'].strip():
             # For mobile devices, treat any input as a message to send
-            actual_input = user_input.strip()
+            actual_input = st.session_state['learn_input'].strip()
             message_sent = True
         
         if message_sent:
@@ -1108,7 +1108,8 @@ def main():
                             st.session_state.chat_history
                         )
                 
-                # Clear the last processed input and rerun to show new messages
+                # Clear the input and last processed input, then rerun to show new messages
+                st.session_state['learn_input'] = ""
                 st.session_state.last_processed_input = ""
                 st.rerun()
     
