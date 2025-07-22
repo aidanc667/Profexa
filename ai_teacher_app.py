@@ -1056,13 +1056,23 @@ def main():
         with col3:
             dont_know_button = st.button("❓ I Don't Know", key="dont_know", use_container_width=False)
         
-        # Handle Send button
+                # Handle Send button or Enter key (prevent double processing)
+        user_input_to_process = None
+        
         if send_button and st.session_state['learn_input'].strip():
-            user_input = st.session_state['learn_input'].strip()
-            
+            user_input_to_process = st.session_state['learn_input'].strip()
+        elif (
+            st.session_state['learn_input'].strip() and
+            st.session_state['learn_input'].strip() != st.session_state.get('last_processed_learn_input', '')
+        ):
+            user_input_to_process = st.session_state['learn_input'].strip()
+        
+        if user_input_to_process:
+            user_input = user_input_to_process
+
             # Add user message to history
             st.session_state.chat_history.append({"role": "user", "content": user_input})
-            
+
             # Generate AI response with progressive teaching
             with st.spinner("🤖 Thinking..."):
                 ai_response = handle_chat_response(
@@ -1168,53 +1178,7 @@ def main():
             st.session_state['clear_learn_input'] = True
             st.rerun()
         
-        # Handle Enter/Return key (input box submit)
-        elif (
-            st.session_state['learn_input'].strip() and
-            st.session_state['learn_input'].strip() != st.session_state.get('last_processed_learn_input', '')
-        ):
-            user_input = st.session_state['learn_input'].strip()
-            # Add user message to history
-            st.session_state.chat_history.append({"role": "user", "content": user_input})
-            # Generate AI response with progressive teaching
-            with st.spinner("🤖 Thinking..."):
-                ai_response = handle_chat_response(
-                    user_input,
-                    st.session_state.current_subtopic,
-                    st.session_state.current_topic,
-                    st.session_state.chat_history,
-                    st.session_state.learning_level,
-                    st.session_state.learning_progress
-                )
-                # Assess response quality and update progress intelligently
-                if len(st.session_state.chat_history) >= 2:
-                    progress_points = assess_response_quality(
-                        user_input,
-                        st.session_state.chat_history[-3]["content"] if len(st.session_state.chat_history) >= 3 else "",
-                        st.session_state.current_subtopic,
-                        st.session_state.learning_level
-                    )
-                    if progress_points <= 3:
-                        st.session_state.learning_progress = max(0, st.session_state.learning_progress - 1)
-                    elif progress_points >= 7:
-                        increase = min(progress_points * 2, 100 - st.session_state.learning_progress)
-                        st.session_state.learning_progress = min(100, st.session_state.learning_progress + increase)
-                    else:
-                        st.session_state.learning_progress = min(100, st.session_state.learning_progress + 3)
-                st.session_state.chat_history.append({"role": "ai", "content": ai_response})
-                if 'user_id' in st.session_state and st.session_state.user_id and not st.session_state.get('is_guest', False):
-                    save_learning_session(
-                        st.session_state.user_id,
-                        st.session_state.current_topic,
-                        st.session_state.current_subtopic,
-                        st.session_state.learning_level,
-                        "learn",
-                        st.session_state.learning_progress,
-                        st.session_state.chat_history
-                    )
-            st.session_state['last_processed_learn_input'] = user_input
-            st.session_state['clear_learn_input'] = True
-            st.rerun()
+
 
         # Progress bar at the bottom
         st.markdown('<div class="progress-container">', unsafe_allow_html=True)
